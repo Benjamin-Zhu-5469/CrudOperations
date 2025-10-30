@@ -1,51 +1,36 @@
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from fastapi import HTTPException, status, Response, Depends
-from ..models import models, schemas
 
+from api.dependencies.database import get_db
+from api.models import models, schemas
 
-def create(db: Session, order):
-    # Create a new instance of the Order model with the provided data
-    db_order = models.Order(
-        customer_name=order.customer_name,
-        description=order.description
-    )
-    # Add the newly created Order object to the database session
-    db.add(db_order)
-    # Commit the changes to the database
-    db.commit()
-    # Refresh the Order object to ensure it reflects the current state in the database
-    db.refresh(db_order)
-    # Return the newly created Order object
-    return db_order
+router = APIRouter(prefix="/orders", tags=["Orders"])
 
+@router.post("", response_model=schemas.Order, status_code=status.HTTP_201_CREATED)
+def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
+    return orders.create(db=db, order=order)  # if you have service/helpers; or do inline DB ops
 
-def read_all(db: Session):
-    return db.query(models.Order).all()
+@router.get("", response_model=list[schemas.Order])
+def read_orders(db: Session = Depends(get_db)):
+    return orders.read_all(db)  # or inline
 
+@router.get("/{order_id}", response_model=schemas.Order)
+def read_one_order(order_id: int, db: Session = Depends(get_db)):
+    obj = orders.read_one(db, order_id=order_id)  # or inline
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return obj
 
-def read_one(db: Session, order_id):
-    return db.query(models.Order).filter(models.Order.id == order_id).first()
+@router.put("/{order_id}", response_model=schemas.Order)
+def update_one_order(order_id: int, order: schemas.OrderUpdate, db: Session = Depends(get_db)):
+    obj = orders.read_one(db, order_id=order_id)  # or inline
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return orders.update(db=db, order=order, order_id=order_id)
 
-
-def update(db: Session, order_id, order):
-    # Query the database for the specific order to update
-    db_order = db.query(models.Order).filter(models.Order.id == order_id)
-    # Extract the update data from the provided 'order' object
-    update_data = order.model_dump(exclude_unset=True)
-    # Update the database record with the new data, without synchronizing the session
-    db_order.update(update_data, synchronize_session=False)
-    # Commit the changes to the database
-    db.commit()
-    # Return the updated order record
-    return db_order.first()
-
-
-def delete(db: Session, order_id):
-    # Query the database for the specific order to delete
-    db_order = db.query(models.Order).filter(models.Order.id == order_id)
-    # Delete the database record without synchronizing the session
-    db_order.delete(synchronize_session=False)
-    # Commit the changes to the database
-    db.commit()
-    # Return a response with a status code indicating success (204 No Content)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_one_order(order_id: int, db: Session = Depends(get_db)):
+    obj = orders.read_one(db, order_id=order_id)  # or inline
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    orders.delete(db=db, order_id=order_id)

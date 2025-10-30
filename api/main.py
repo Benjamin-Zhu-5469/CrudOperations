@@ -1,55 +1,52 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from fastapi.middleware.cors import CORSMiddleware
 
-from .models import models, schemas
-from .controllers import orders
-from .dependencies.database import engine, get_db
+from api.dependencies.database import get_db
+from api.models import models, schemas
 
-models.Base.metadata.create_all(bind=engine)
-
-app = FastAPI()
-
-origins = ["*"]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+router = APIRouter(prefix="/orders", tags=["Orders"])
 
 
-@app.post("/orders/", response_model=schemas.Order, tags=["Orders"])
-def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
-    return orders.create(db=db, order=order)
+@router.post("", response_model=schemas.Order, status_code=status.HTTP_201_CREATED)
+def create_order(payload: schemas.OrderCreate, db: Session = Depends(get_db)):
+    obj = models.Order(**payload.model_dump())
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
 
 
-@app.get("/orders/", response_model=list[schemas.Order], tags=["Orders"])
+@router.get("", response_model=list[schemas.Order])
 def read_orders(db: Session = Depends(get_db)):
-    return orders.read_all(db)
+    return db.query(models.Order).order_by(models.Order.id).all()
 
 
-@app.get("/orders/{order_id}", response_model=schemas.Order, tags=["Orders"])
+@router.get("/{order_id}", response_model=schemas.Order)
 def read_one_order(order_id: int, db: Session = Depends(get_db)):
-    order = orders.read_one(db, order_id=order_id)
-    if order is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return order
+    obj = db.get(models.Order, order_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return obj
 
 
-@app.put("/orders/{order_id}", response_model=schemas.Order, tags=["Orders"])
-def update_one_order(order_id: int, order: schemas.OrderUpdate, db: Session = Depends(get_db)):
-    order_db = orders.read_one(db, order_id=order_id)
-    if order_db is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return orders.update(db=db, order=order, order_id=order_id)
+@router.put("/{order_id}", response_model=schemas.Order)
+def update_one_order(order_id: int, payload: schemas.OrderUpdate, db: Session = Depends(get_db)):
+    obj = db.get(models.Order, order_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        setattr(obj, k, v)
+
+    db.commit()
+    db.refresh(obj)
+    return obj
 
 
-@app.delete("/orders/{order_id}", tags=["Orders"])
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_one_order(order_id: int, db: Session = Depends(get_db)):
-    order = orders.read_one(db, order_id=order_id)
-    if order is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return orders.delete(db=db, order_id=order_id)
+    obj = db.get(models.Order, order_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Order not found")
+    db.delete(obj)
+    db.commit()
